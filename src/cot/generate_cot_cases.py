@@ -36,7 +36,7 @@ def build_cot_generation_prompt(case: dict) -> str:
     complaint = case.get("complaint_clean") or case.get("complaint") or ""
     summary = case.get("summary_llm_clean") or case.get("summary_llm") or ""
     findings = case.get("important_findings_clean") or case.get("important_findings") or []
-    diagnosis = case.get("diagnosis") or ""
+    diagnosis_display = case.get("diagnosis_display") or case.get("diagnosis") or ""
 
     return f"""
 Сформируй краткое клиническое рассуждение для обучающего few-shot примера.
@@ -44,13 +44,13 @@ def build_cot_generation_prompt(case: dict) -> str:
 Жалоба: {complaint}
 Симптомы: {"; ".join(findings[:12])}
 Краткое описание: {summary}
-Известный диагноз кейса: {diagnosis}
+Известный диагноз кейса: {diagnosis_display}
 
 Верни строго JSON формата:
 {{
   "cot": "5-7 коротких шагов рассуждения",
   "differential": ["гипотеза 1", "гипотеза 2"],
-  "final_hypothesis": "{diagnosis}",
+  "final_hypothesis": "{diagnosis_display}",
   "teaching_points": ["ключевой признак 1", "ключевой признак 2"]
 }}
 """.strip()
@@ -75,9 +75,11 @@ def main():
 
     for idx, case in enumerate(cases, start=1):
         case_id = str(case.get("case_id", idx))
-        diagnosis = (case.get("diagnosis") or "").strip()
 
-        if not diagnosis:
+        diagnosis = (case.get("diagnosis") or "").strip()
+        diagnosis_display = (case.get("diagnosis_display") or diagnosis).strip()
+
+        if not diagnosis_display:
             print(f"[{idx}/{len(cases)}] SKIP | case_id={case_id} | no diagnosis")
             continue
 
@@ -92,20 +94,25 @@ def main():
             data = json.loads(extract_json_block(raw))
 
             cot = str(data.get("cot", "")).strip()
+
             differential = data.get("differential", [])
             if not isinstance(differential, list):
                 differential = []
 
-            final_hypothesis = str(data.get("final_hypothesis", diagnosis)).strip()
+            final_hypothesis = str(
+                data.get("final_hypothesis", diagnosis_display)
+            ).strip()
+
             teaching_points = data.get("teaching_points", [])
             if not isinstance(teaching_points, list):
                 teaching_points = []
 
             complaint = case.get("complaint_clean") or case.get("complaint") or ""
+
             cot_text_for_embedding = (
                 f"Жалоба: {complaint}. "
                 f"Рассуждение: {cot}. "
-                f"Диагноз: {final_hypothesis}"
+                f"Диагноз: {diagnosis_display}"
             ).strip()
 
             existing[case_id] = {
@@ -113,6 +120,9 @@ def main():
                 "complaint": case.get("complaint", ""),
                 "complaint_clean": case.get("complaint_clean", ""),
                 "diagnosis": diagnosis,
+                "diagnosis_display": diagnosis_display,
+                "icd10_code": case.get("icd10_code", ""),
+                "icd10_label": case.get("icd10_label", ""),
                 "cot": cot,
                 "differential": differential,
                 "final_hypothesis": final_hypothesis,
